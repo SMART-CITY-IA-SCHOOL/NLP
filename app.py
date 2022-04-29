@@ -1,3 +1,4 @@
+from markdown import markdown
 import pandas as pd
 import json
 import matplotlib.pyplot as plt
@@ -9,8 +10,12 @@ from streamlit_option_menu import option_menu
 import streamlit.components.v1 as components
 import plotly.graph_objects as go
 import numpy as np
-from Quartier import humeur, evolution, categorie
+from Quartier import humeur, evolution, categorie, report
 from datetime import timedelta
+import time
+import base64
+
+timestr = time.strftime("%Y%m%d-%H%M%S")
 
 logo = "logoSC.png"
 image = "smart_city.png"
@@ -26,6 +31,37 @@ df_post = load_data("df_post.csv")
 df_post.DATE = pd.to_datetime(df_post.DATE).dt.date
 
 df_comment = load_data("df_comment.csv")
+
+def home():
+    st.title(":hibiscus: Projet Smart City")
+    st.subheader("Détecter les causes de mécontentement des résidents")
+    st.markdown("**Cet webApp a été codée dans le cadre du projet IA proposé par l'IA School sur le thème de\
+        Smart-City. Elle permet à l'utilisateur de pouvoir détecter rapidement les sources de mécontentement des\
+    résidents des quartiers Smart-City. Elle se décompose en plusieurs onglets :**")
+
+    st.markdown("##### :rage: Alerte")
+    st.write("La page alerte se veut être un rapport des post et commentaires négatifs des derniers jours.\
+        De plus l'utilisateur pourra télécharger un pdf du rapport quotidien avec les posts et commentaires jugés négatifs\
+            par catégorie.")
+
+    st.markdown("##### :speech_balloon: Quartier ####")
+    st.write("L'onglet quartier permet de définir un intervalle de temps et afficher les KPI de cet intervalle.\
+        On peut ainsi analyser les tendances à l'échelle d'une année et détecter quels ont été les sujets de \
+            mécontentement des usagers. Les graphiques affichés permettent de voir en un coup d'oeil quelles actions\
+                 devraient être menées en priorité.")
+
+    st.markdown("##### :hammer: Maintenance ####")
+    st.write("La page maintenance est une analyse des tickets de maintenance. Elle permet de voir rapidement si\
+        les tickets sont pris en compte en temps et en heure et quels sont les problèmes majoritaires vécus par les \
+            résidents.")
+    
+
+    
+
+
+    
+
+
 
 def page_quartier():
     with st.container():
@@ -130,37 +166,51 @@ def alerte():
     else:
         nombre_alertes = len(df_alerte)
         categorie_detectees = df_alerte.Topics_text.unique().tolist()
+        st.error(f"{nombre_alertes} Alertes potentiellement détectées sur les 7 derniers jours")
 
-        stc.html(f"""<p style="font-size:34px; color:#FF6347; font-style:bold;"> {nombre_alertes} Alertes potentiellement détectées !</p>""")
+
         moyenne = df_alerte.groupby("Topics_text").agg({"Sentiments_comment":"mean", "score_pondere":"mean", "nb_comment":"count"})
         moyenne = moyenne.reset_index()
         moyenne["sentiment_general"] = moyenne["Sentiments_comment"] + moyenne["score_pondere"]
         moyenne = moyenne.rename(columns = {"nb_comment":"Nombre_Posts"})
         
         with st.container():
-            col1, col2, col3 = st.columns([15,3,15])
+            col1, col2, col3 = st.columns(3)
+            col2.subheader("Sujets de mécontentement")
         
-        with col1:
-            st.subheader("Sujets de mécontentements")
-            fig, ax = plt.subplots(figsize = (1.8,2.2))
-            sns.heatmap(moyenne[["Topics_text", "sentiment_general"]].set_index("Topics_text").sort_values("sentiment_general"), annot=True,
-                        cmap = "Reds_r", linewidths = 5, cbar = False, ax=ax)
-            plt.ylabel("")
-            plt.xticks(ticks = [])
-            st.pyplot(fig,)
-
-        with col3:
-            st.subheader("Nombre de post par catégorie")
-            fig = px.pie(moyenne, names = "Topics_text", values = "Nombre_Posts",
-             color_discrete_sequence = px.colors.sequential.RdBu, hole = 0.5, color = "sentiment_general",
-             width=420, height=420)
-            fig.update_traces(textinfo='value+label')
-            fig.update_layout(showlegend=False)
-            st.plotly_chart(fig)
+        
         
         with st.container():
-            st.subheader("Afficher les posts et les commentaires")
-            col1, col2, col3 = st.columns([6,6,6])
+            col1, col2, col3 = st.columns([1.8,1,3])
+        
+        with col1:
+            st.markdown("#")
+            st.markdown("#")
+            sns.set(rc={'axes.facecolor':'#F3E9D3', 'figure.facecolor':'#F3E9D3'})
+            
+            fig, ax = plt.subplots(figsize = (1.4,2.6), facecolor= '#F3E9D3' )
+            sns.heatmap(moyenne[["Topics_text", "sentiment_general"]].set_index("Topics_text").sort_values("sentiment_general"),\
+                 annot=True, cmap = "Reds_r", linewidths = 5, cbar = False, ax=ax)
+            plt.ylabel("")
+            plt.xticks(ticks = [])
+
+            st.pyplot(fig)
+
+        with col3:
+            fig = px.pie(moyenne, names = "Topics_text", values = "Nombre_Posts",
+             color_discrete_sequence = px.colors.sequential.RdBu, hole = 0.5, color = "sentiment_general",width=450,
+                height=450)
+
+            fig.update_traces(textinfo='value+label')
+            fig.update_layout(showlegend=False)
+
+            st.plotly_chart(fig)
+
+        
+        with st.container():
+            st.markdown("##")
+            col1, col2, col3 = st.columns([1,2,1])
+            col2.subheader("Afficher les posts et les commentaires")
             cat = col2.selectbox("Choisir une catégorie", categorie_detectees)
             df_cat = df_alerte[df_alerte.Topics_text == cat]
             df_cat = df_cat.reset_index()
@@ -174,15 +224,68 @@ def alerte():
                 st.markdown(f"##### Catégorie {cat} - Post {i+1} ####")
                 st.table(display_post)
                 st.table(display_comment)
+        
+        
+
+        with st.container():
+
+            #Je créé le dataset journalier des posts négatifs
+            derniere_date = str(df_post.loc[df_post.shape[0]-1, "DATE"])[:10]
+            df_post.DATE = pd.to_datetime(df_post.DATE)
+            df_alerte = df_post[df_post.DATE == derniere_date]
+            df_post_jour = df_alerte[(df_post.Sentiments_comment < 0) | (df_alerte.score_pondere < 0)]  
             
 
+            valeur_humeur = np.mean(df_alerte["score_pondere"])
+            if valeur_humeur < -0.2:
+                text = "Mauvaise humeur" 
+            elif valeur_humeur > 0.2:
+                text = "Bonne humeur"
+            else :
+                text = "Humeur Maussade"
 
+
+            #1er graphe
+            fig = go.Figure(go.Indicator(
+                mode = "gauge+number",
+                value = valeur_humeur,
+                title = {'text': text},
+                gauge = {'axis': {'range': [-1, 1]},
+                         'bar': {'color': "darkgray"},
+                         'steps' : [{'range': [-1, -0.2], 'color': "firebrick"},
+                                    {'range': [-0.2, 0.2], 'color': "lightblue"},
+                                    {'range': [0.2, 1], 'color': "forestgreen"}] }))
+
+            fig.update_layout( autosize=False, width=300, height=300,margin=dict(l=0, r=0, b=0, t=0))
+            fig.write_image("humeur_journee.png", engine='kaleido')
+
+
+            #2eme graphe
+            fig = px.bar(df_post_jour, y="Topics_text", x="score_pondere",
+                orientation = "h", color = "Sentiment", color_continuous_scale = "reds_r", range_color = (1, -1),width=450,
+                height=300)
+            fig.update_xaxes(title = "Sentiment")
+            fig.update_yaxes(title = "")
+            fig.write_image("barplot_report.png")
+
+            
+            st.markdown("###### Télécharger le rapport quotidien")
+
+            export_as_pdf = st.button("Export Report")
+
+            def create_download_link(val, filename):
+                b64 = base64.b64encode(val)
+                return f'<a href="data:application/octet-stream;base64,{b64.decode()}" download="{filename}.pdf">Download file</a>'
+
+            if export_as_pdf:
+                rapport_pdf =  report(df_post, df_comment)
+                html = create_download_link(rapport_pdf.encode("latin-1"), f"Rapport_du_{derniere_date}")
+                st.markdown(html, unsafe_allow_html=True)
 
 
 
 
 def main():
-    st.header("Projet Smart City")
 
     with st.sidebar:
         st.image(image, width = 300)
@@ -191,14 +294,15 @@ def main():
 
         choice = option_menu(
             menu_title = "Quartier",
-            options = ["Alerte", "Quartier", "Maintenance"],
-            icons=["exclamation-square", "house","hammer"],
+            options = ["Home", "Alerte", "Quartier", "Maintenance"],
+            icons=["house", "exclamation-square", "house","hammer"],
             menu_icon="search"
         )
         st.subheader("Par: ")
         st.text(" Maxime Le Tutour\n Dorian Keddar\n Florian Cunit-Ravet")
         st.image(ia_scool_logo, width = 150)
-    
+    if choice == "Home":
+        home()
     if choice == "Quartier":
         page_quartier()
     elif choice == "Maintenance":
